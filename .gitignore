@@ -103,7 +103,6 @@ venv.bak/
 # mypy
 .mypy_cache/
 
-# vscode
 .vscode/
+data/
 notebooks/ljspeech_phonemes/
-
