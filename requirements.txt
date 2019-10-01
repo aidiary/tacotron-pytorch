@@ -1,0 +1,10 @@
+numpy
+scipy
+matplotlib
+librosa
+soundfile
+torch
+tensorboardX
+tqdm
+Unidecode
+git+git://github.com/bootphon/phonemizer@master
