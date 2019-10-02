@@ -16,6 +16,43 @@ class Tacotron(nn.Module):
 
         self.encoder = Encoder(256)
         self.decoder = Decoder(256, mel_dim, r)
+        self.postnet = CBHG(
+            mel_dim,
+            K=8,
+            conv_bank_features=128,
+            conv_projections=[256, mel_dim],
+            highway_features=128,
+            gru_features=128,
+            num_highways=4)
+        self.last_linear = nn.Linear(
+            self.postnet.gru_features * 2, linear_dim)
+
+    def forward(self, characters, text_lengths, mel_specs):
+        B = characters.size(0)
+        mask = self._sequence_mask(text_lengths).to(characters.device)
+
+        inputs = self.embedding(characters)
+        encoder_outputs = self.encoder(inputs)
+        mel_outputs, alignments, stop_tokens = self.decoder(
+            encoder_outputs, mel_specs, mask)
+        # 複数フレームがまとまっているので元に戻す
+        mel_outputs = mel_outputs.view(B, -1, self.mel_dim)
+        # メルスペクトログラムを線形スペクトログラムに変換する
+        linear_outputs = self.postnet(mel_outputs)
+        linear_outputs = self.last_linear(linear_outputs)
+        return mel_outputs, linear_outputs, alignments, stop_tokens
+
+    def _sequence_mask(self, sequence_length, maxlen=None):
+        if maxlen is None:
+            maxlen = sequence_length.data.max()
+        batch_size = sequence_length.size(0)
+        seq_range = torch.arange(0, maxlen).long()
+        seq_range_expand = seq_range.unsqueeze(0).expand(batch_size, maxlen)
+        if sequence_length.is_cuda:
+            seq_range_expand = seq_range_expand.cuda()
+        seq_length_expand = (sequence_length.unsqueeze(1).
+                             expand_as(seq_range_expand))
+        return seq_range_expand < seq_length_expand
 
 
 class Encoder(nn.Module):
@@ -269,6 +306,12 @@ class CBHG(nn.Module):
             layer_set.append(layer)
         self.conv1d_projections = nn.ModuleList(layer_set)
 
+        # 論文の実装だとPostCBHGのConv1d projectionの出力が80ユニットなので
+        # Highwayの128ユニットに入力できないためLinearで合わせる
+        if self.highway_features != conv_projections[-1]:
+            self.pre_highway = nn.Linear(
+                conv_projections[-1], highway_features, bias=False)
+
         # Highway layers
         self.highways = nn.ModuleList([
             Highway(highway_features, highway_features)
@@ -309,6 +352,10 @@ class CBHG(nn.Module):
         x += inputs
 
         # Highway network
+        # PostCBHGではサイズが異なるのでLinearを挟む
+        if self.highway_features != self.conv_projections[-1]:
+            x = self.pre_highway(x)
+
         for highway in self.highways:
             x = highway(x)
 
@@ -493,3 +540,16 @@ class StopNet(nn.Module):
         outputs = self.dropout(inputs)
         outputs = self.linear(outputs)
         return outputs
+
+
+if __name__ == "__main__":
+    characters = torch.ones([32, 71], dtype=torch.long)
+    text_lengths = torch.ones(32, dtype=torch.long)
+    mel_specs = torch.rand(32, 231, 80)
+    tacotron = Tacotron(num_chars=71, r=7, linear_dim=1025, mel_dim=80)
+    mel_outputs, linear_outputs, alignments, stop_tokens = tacotron(
+        characters, text_lengths, mel_specs)
+    print(mel_outputs.shape)
+    print(linear_outputs.shape)
+    print(alignments.shape)
+    print(stop_tokens.shape)
