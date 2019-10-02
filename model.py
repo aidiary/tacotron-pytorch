@@ -1,4 +1,6 @@
+import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class Tacotron(nn.Module):
@@ -17,7 +19,21 @@ class Tacotron(nn.Module):
 
 
 class Encoder(nn.Module):
-    pass
+
+    def __init__(self, in_features):
+        super(Encoder, self).__init__()
+        self.prenet = Prenet(in_features, out_features=[256, 128])
+        self.cbhg = CBHG(128,
+                         K=16,
+                         conv_bank_features=128,
+                         conv_projections=[128, 128],
+                         highway_features=128,
+                         gru_features=128,
+                         num_highways=4)
+
+    def forward(self, inputs):
+        inputs = self.prenet(inputs)
+        return self.cbhg(inputs)
 
 
 class Decoder(nn.Module):
@@ -104,7 +120,7 @@ class CBHG(nn.Module):
     def forward(self, inputs):
         # inputs: (batch, seq_len, input_size)
         # (batch, input_size, seq_len)
-        x = input.transpose(1, 2)
+        x = inputs.transpose(1, 2)
 
         # Conv1D bank
         outs = []
@@ -188,11 +204,11 @@ class Linear(nn.Module):
         return self.linear_layer(x)
 
 
-class PreNet(nn.Module):
+class Prenet(nn.Module):
     def __init__(self,
                  in_features,
                  out_features=[256, 256]):
-        super(PreNet, self).__init__()
+        super(Prenet, self).__init__()
         in_features = [in_features] + out_features[:-1]
         self.layers = nn.ModuleList([
             Linear(in_size, out_size)
@@ -203,3 +219,20 @@ class PreNet(nn.Module):
         for linear in self.layers:
             x = F.dropout(F.relu(linear(x)), p=0.5, training=self.training)
         return x
+
+
+class Highway(nn.Module):
+
+    def __init__(self, in_size, out_size):
+        super(Highway, self).__init__()
+        self.H = nn.Linear(in_size, out_size)
+        self.H.bias.data.zero_()
+        self.T = nn.Linear(in_size, out_size)
+        self.T.bias.data.fill_(-1)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, inputs):
+        H = self.relu(self.H(inputs))
+        T = self.sigmoid(self.T(inputs))
+        return H * T + inputs * (1.0 - T)
