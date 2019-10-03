@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from utils.utils import sequence_mask
 
 
 class Tacotron(nn.Module):
@@ -29,7 +30,7 @@ class Tacotron(nn.Module):
 
     def forward(self, characters, text_lengths, mel_specs):
         B = characters.size(0)
-        mask = self._sequence_mask(text_lengths).to(characters.device)
+        mask = sequence_mask(text_lengths).to(characters.device)
 
         inputs = self.embedding(characters)
         encoder_outputs = self.encoder(inputs)
@@ -41,18 +42,6 @@ class Tacotron(nn.Module):
         linear_outputs = self.postnet(mel_outputs)
         linear_outputs = self.last_linear(linear_outputs)
         return mel_outputs, linear_outputs, alignments, stop_tokens
-
-    def _sequence_mask(self, sequence_length, maxlen=None):
-        if maxlen is None:
-            maxlen = sequence_length.data.max()
-        batch_size = sequence_length.size(0)
-        seq_range = torch.arange(0, maxlen).long()
-        seq_range_expand = seq_range.unsqueeze(0).expand(batch_size, maxlen)
-        if sequence_length.is_cuda:
-            seq_range_expand = seq_range_expand.cuda()
-        seq_length_expand = (sequence_length.unsqueeze(1).
-                             expand_as(seq_range_expand))
-        return seq_range_expand < seq_length_expand
 
 
 class Encoder(nn.Module):
@@ -485,8 +474,10 @@ class Attention(nn.Module):
     def init_states(self, inputs):
         B = inputs.shape[0]
         T = inputs.shape[1]
-        self.attention_weights = torch.zeros([B, T], dtype=torch.float32)
-        self.attention_weights_cum = torch.zeros([B, T], dtype=torch.float32)
+        self.attention_weights = torch.zeros(
+            [B, T], dtype=torch.float32, device=inputs.device)
+        self.attention_weights_cum = torch.zeros(
+            [B, T], dtype=torch.float32, device=inputs.device)
 
     def get_location_attention(self, query, processed_inputs):
         attention_cat = torch.cat((self.attention_weights.unsqueeze(1),
