@@ -54,7 +54,7 @@ def main():
         pin_memory=False)
 
     valid_loader = torch.utils.data.DataLoader(
-        train_dataset,
+        valid_dataset,
         batch_size=batch_size,
         shuffle=False,
         collate_fn=valid_dataset.collate_fn,
