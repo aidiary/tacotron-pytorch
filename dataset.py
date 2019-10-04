@@ -26,7 +26,6 @@ class TTSDataset(torch.utils.data.Dataset):
             for line in fp:
                 line = line.rstrip()
                 self.targets.append(line)
-        print(len(self.targets))
 
     def __len__(self):
         return len(self.targets)
