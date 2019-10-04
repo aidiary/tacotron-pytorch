@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data
 
-from dataset import TTSDataset, preprocess_ljspeech
+from dataset import TTSDataset
 from model import Tacotron
 from loss import L1LossMasked
 from utils.utils import count_parameters
@@ -36,25 +36,10 @@ writer = SummaryWriter()
 def main():
     ap = AudioProcessor()
 
-    # Load dataset
-    train_items = preprocess_ljspeech(
-        'data/LJSpeech-1.1', 'metadata_train.csv')
-    valid_items = preprocess_ljspeech(
-        'data/LJSpeech-1.1', 'metadata_val.csv')
-
     train_dataset = TTSDataset(
-        7,
-        'phoneme_cleaners',
-        ap,
-        train_items,
-        phoneme_cache_path='ljspeech_phonemes')
-
+        'data/LJSpeech-1.1', 'train.list', outputs_per_step=7)
     valid_dataset = TTSDataset(
-        7,
-        'phoneme_cleaners',
-        ap,
-        valid_items,
-        phoneme_cache_path='ljspeech_phonemes')
+        'data/LJSpeech-1.1', 'valid.list', outputs_per_step=7)
 
     print('train data:', len(train_dataset))
     print('valid data:', len(valid_dataset))
@@ -237,19 +222,18 @@ def evaluate(valid_loader, model, criterion, criterion_st, ap, global_step, epoc
             avg_postnet_loss += float(postnet_loss.item())
             avg_stop_loss += float(stop_loss.item())
 
-        # logging_stepごとにTensorboardにlossを記録
-        if global_step % logging_step == 0:
-            writer.add_scalar('valid/postnet_loss',
-                              postnet_loss.item(), global_step)
-            writer.add_scalar('valid/decoder_loss',
-                              decoder_loss.item(), global_step)
-            writer.add_scalar('valid/stop_loss',
-                              stop_loss.item(), global_step)
-
         num_batch = len(valid_loader)
         avg_decoder_loss /= num_batch
         avg_postnet_loss /= num_batch
         avg_stop_loss /= num_batch
+
+        # evaluateはepochごとにlossを記録
+        writer.add_scalar('valid/postnet_loss',
+                          avg_postnet_loss.item(), global_step)
+        writer.add_scalar('valid/decoder_loss',
+                          avg_decoder_loss.item(), global_step)
+        writer.add_scalar('valid/stop_loss',
+                          avg_stop_loss.item(), global_step)
 
     return avg_postnet_loss
 
