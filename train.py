@@ -37,9 +37,9 @@ def main():
     ap = AudioProcessor()
 
     train_dataset = TTSDataset(
-        'data/LJSpeech-1.1', 'train.list', outputs_per_step=7)
+        'data/LJSpeech-1.1', 'train.list', outputs_per_step=r)
     valid_dataset = TTSDataset(
-        'data/LJSpeech-1.1', 'valid.list', outputs_per_step=7)
+        'data/LJSpeech-1.1', 'valid.list', outputs_per_step=r)
 
     print('train data:', len(train_dataset))
     print('valid data:', len(valid_dataset))
