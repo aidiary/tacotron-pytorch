@@ -229,11 +229,11 @@ def evaluate(valid_loader, model, criterion, criterion_st, ap, global_step, epoc
 
         # evaluateはepochごとにlossを記録
         writer.add_scalar('valid/postnet_loss',
-                          avg_postnet_loss.item(), global_step)
+                          avg_postnet_loss, global_step)
         writer.add_scalar('valid/decoder_loss',
-                          avg_decoder_loss.item(), global_step)
+                          avg_decoder_loss, global_step)
         writer.add_scalar('valid/stop_loss',
-                          avg_stop_loss.item(), global_step)
+                          avg_stop_loss, global_step)
 
     return avg_postnet_loss
 
