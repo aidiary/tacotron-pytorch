@@ -43,6 +43,17 @@ class Tacotron(nn.Module):
         linear_outputs = self.last_linear(linear_outputs)
         return mel_outputs, linear_outputs, alignments, stop_tokens
 
+    def inference(self, characters):
+        B = characters.size(0)
+        inputs = self.embedding(characters)
+        encoder_outputs = self.encoder(inputs)
+        mel_outputs, alignments, stop_tokens = \
+            self.decoder.inference(encoder_outputs)
+        mel_outputs = mel_outputs.view(B, -1, self.mel_dim)
+        linear_outputs = self.postnet(mel_outputs)
+        linear_outputs = self.last_linear(linear_outputs)
+        return mel_outputs, linear_outputs, alignments, stop_tokens
+
 
 class Encoder(nn.Module):
 
@@ -189,6 +200,31 @@ class Decoder(nn.Module):
         output = output[:, :self.r * self.memory_dim]
         return output, stop_token, self.attention.attention_weights
 
+    def inference(self, inputs):
+        outputs = []
+        attentions = []
+        stop_tokens = []
+        t = 0
+        self._init_states(inputs)
+        self.attention.init_states(inputs)
+        while True:
+            if t > 0:
+                new_memory = outputs[-1]
+                self._update_memory_input(new_memory)
+            output, stop_token, attention = self.decode(inputs, None)
+            stop_token = torch.sigmoid(stop_token.data)
+            outputs += [output]
+            attentions += [attention]
+            stop_tokens += [stop_token]
+            t += 1
+            # TODO: 1つ目の条件は何を意味する？
+            if t > inputs.shape[1] / 4 and (stop_token > 0.6 or attention[:, -1].item() > 0.6):
+                break
+            elif t > self.max_decoder_steps:
+                print('WARNING: Decoder stopped with max_decoder_steps')
+                break
+        return self._parse_outputs(outputs, attentions, stop_tokens)
+
     def _reshape_memory(self, memory):
         """
         Reshape the spectrograms for given 'r'
@@ -228,8 +264,6 @@ class Decoder(nn.Module):
         outputs = torch.stack(outputs).transpose(0, 1).contiguous()
         stop_tokens = torch.stack(stop_tokens).transpose(0, 1).squeeze(-1)
         return outputs, attentions, stop_tokens
-
-    # TODO: inferenceを追加
 
 
 class CBHG(nn.Module):
