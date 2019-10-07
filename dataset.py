@@ -8,72 +8,45 @@ from utils.text import text_to_sequence, phoneme_to_sequence, pad_with_eos_bos
 
 class TTSDataset(torch.utils.data.Dataset):
 
-    def __init__(self, outputs_per_step, text_cleaner, ap, meta_data,
-                 use_phonemes=True, phoneme_cache_path=None,
-                 phoneme_language='en-us'):
+    def __init__(self, data_root, target_list, outputs_per_step):
+        self.data_root = data_root
+        self.target_list = target_list
         self.outputs_per_step = outputs_per_step
-        self.cleaners = text_cleaner
-        self.ap = ap
-        self.items = meta_data
 
-        self.use_phonemes = use_phonemes
-        self.phoneme_cache_path = phoneme_cache_path
-        self.phoneme_language = phoneme_language
-
-        if use_phonemes and not os.path.isdir(phoneme_cache_path):
-            os.makedirs(phoneme_cache_path, exist_ok=True)
+        self.phoneme_dir = os.path.join(self.data_root, 'phoneme')
+        self.melspec_dir = os.path.join(self.data_root, 'melspec')
+        self.spec_dir = os.path.join(self.data_root, 'spec')
 
         print('DataLoader initialization')
-        print('  Use phonemes: {}'.format(self.use_phonemes))
-        print('  Number of instances: {}'.format(len(self.items)))
+        print('  data_root: {}'.format(self.data_root))
+        print('  target_list: {}'.format(self.target_list))
+
+        self.targets = []
+        with open(os.path.join(data_root, target_list), 'r') as fp:
+            for line in fp:
+                line = line.rstrip()
+                self.targets.append(line)
 
     def __len__(self):
-        return len(self.items)
+        return len(self.targets)
 
     def __getitem__(self, idx):
-        return self.load_data(idx)
+        prefix = self.targets[idx]
+        return self.load_data(prefix)
 
-    def load_data(self, idx):
-        text, wav_file = self.items[idx]
-        wav = np.asarray(self.ap.load_wav(wav_file), dtype=np.float32)
-
-        if self.use_phonemes:
-            text = self._load_or_generate_phoneme_sequence(wav_file, text)
-        else:
-            text = np.asarray(
-                text_to_sequence(text, [self.cleaners]), dtype=np.int32)
-
-        assert text.size > 0, self.items[idx][1]
-        assert wav.size > 0, self.items[idx][1]
-
+    def load_data(self, prefix):
+        phoneme = np.load(os.path.join(
+            self.data_root, 'phoneme', prefix + '.npy'))
+        spec = np.load(os.path.join(self.data_root, 'spec', prefix + '.npy'))
+        melspec = np.load(os.path.join(
+            self.data_root, 'melspec', prefix + '.npy'))
         sample = {
-            'text': text,
-            'wav': wav,
-            'item_idx': self.items[idx][1]
+            'prefix': prefix,
+            'phoneme': phoneme,
+            'melspec': melspec,
+            'spec': spec
         }
-
         return sample
-
-    def _load_or_generate_phoneme_sequence(self, wav_file, text):
-        filename = os.path.basename(wav_file).split('.')[0]
-        cache_path = os.path.join(
-            self.phoneme_cache_path, filename + '_phoneme.npy')
-
-        try:
-            phonemes = np.load(cache_path)
-        except FileNotFoundError:
-            phonemes = self._generate_and_cache_phoneme_sequence(
-                text, cache_path)
-
-        return phonemes
-
-    def _generate_and_cache_phoneme_sequence(self, text, cache_path):
-        phonemes = phoneme_to_sequence(text, [self.cleaners],
-                                       language=self.phoneme_language,
-                                       enable_eos_bos=False)
-        phonemes = np.asarray(phonemes, dtype=np.int32)
-        np.save(cache_path, phonemes)
-        return phonemes
 
     def collate_fn(self, batch):
         """
@@ -86,20 +59,15 @@ class TTSDataset(torch.utils.data.Dataset):
         assert isinstance(batch[0], collections.Mapping)
 
         # テキスト長の長い順にサンプルをソート
-        text_lengths = np.array([len(d['text']) for d in batch])
+        text_lengths = np.array([len(d['phoneme']) for d in batch])
         text_lengths, ids_sorted_decreasing = torch.sort(
             torch.LongTensor(text_lengths), dim=0, descending=True)
 
         # テキストに合わせて他もソート
-        wav = [batch[idx]['wav'] for idx in ids_sorted_decreasing]
-        item_idxs = [batch[idx]['item_idx'] for idx in ids_sorted_decreasing]
-        text = [batch[idx]['text'] for idx in ids_sorted_decreasing]
-
-        # 音声をメルスペクトログラムに変換
-        mel = [self.ap.melspectrogram(w).astype('float32') for w in wav]
-
-        # 音声を線形スペクトログラムに変換
-        linear = [self.ap.spectrogram(w).astype('float32') for w in wav]
+        text = [batch[idx]['phoneme'] for idx in ids_sorted_decreasing]
+        prefix = [batch[idx]['prefix'] for idx in ids_sorted_decreasing]
+        mel = [batch[idx]['melspec'] for idx in ids_sorted_decreasing]
+        linear = [batch[idx]['spec'] for idx in ids_sorted_decreasing]
 
         # paddingする前のmelの長さを返す？
         mel_lengths = [m.shape[1] + 1 for m in mel]  # +1 for zero-frame
@@ -134,19 +102,7 @@ class TTSDataset(torch.utils.data.Dataset):
         stop_targets = torch.FloatTensor(stop_targets)
 
         return text, text_lengths, linear, mel, mel_lengths, \
-            stop_targets, item_idxs
-
-
-def preprocess_ljspeech(root_path, meta_file):
-    text_file = os.path.join(root_path, meta_file)
-    items = []
-    with open(text_file, 'r') as fp:
-        for line in fp:
-            cols = line.split('|')
-            wav_file = os.path.join(root_path, 'wavs', cols[0] + '.wav')
-            text = cols[1]
-            items.append([text, wav_file])
-    return items
+            stop_targets, prefix
 
 
 def prepare_data(inputs):
