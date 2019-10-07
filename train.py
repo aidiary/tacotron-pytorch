@@ -105,6 +105,7 @@ def main():
             }
             best_loss = valid_loss
             best_model_path = os.path.join(writer.logdir, 'best_model.pth')
+            torch.save(state, best_model_path)
 
 
 def train(train_loader, model, criterion, criterion_st,
