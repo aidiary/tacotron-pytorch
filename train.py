@@ -21,7 +21,7 @@ torch.backends.cudnn.benchmark = False
 torch.manual_seed(54321)
 
 gpu_id = 3
-r = 7
+r = 7  # output layer reduction factor
 batch_size = 32
 lr = 0.0001
 epochs = 1000
@@ -64,7 +64,7 @@ def main():
 
     # Create models
     num_chars = len(phonemes)
-    model = Tacotron(num_chars).to(device)
+    model = Tacotron(num_chars, r=r).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=0.0)
     # StopNetは二値分類タスクなので独自に訓練する
